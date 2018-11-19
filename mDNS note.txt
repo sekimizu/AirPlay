@@ -1,0 +1,129 @@
+0. What is mDNS
+multicast DNS and DNS-based Service Discovery were created to provide IP networking with the 
+ease-of-use and autoconfiguration for which AppleTalk was well known NBP.
+
+1. Why mDNS?
+==> 裝置越來越小，希望能有個方便的機制，可以不需要做額外的設定
+兩個裝置之間就可以進行溝通
+
+2. 每個device可以給自己設定一個名稱，如 MyComputer.local.
+後面加一個.local. 代表這個名稱是屬於link-local使用的
+此外這個名稱必須要是unique
+
+3. 在送出DNS queries 只要search目標是包含 .local. 的，送出去的封包目標位置都是224.0.0.251
+或 FF02::FB
+
+4. 有個潛在危機，就是resolving global names via local multicast，但是draft裡面不提
+(can not ensure that the response is trustworthy)
+
+5. DNS "A" record => ipv4 , DNS "AAA" record => ipv6
+
+6. 詳細的DNS record types可以看DNS-SD draft
+
+7. 一個single unique name host 可以share multiple resource records.
+在此的resource record除了原本的address record(host names)，還指其他種
+
+8. DNS querying有兩種，one-shot queries和continuous ongoing
+
+9. 當你要new一個DNS Responder時，自己也必須弄一個DNS Querier，才能確保自己的resource records是unique
+
+10. ### One-shot Multicast DNS Queries ###
+最基本也最簡單的機制，DNS queries bindily to 224.0.0.251:5353
+timeout一般是2or3 sec
+如果你想要自己定義一個最簡單的mDNS resolver，記得走自己訂的port
+只要是走UDP 5353，就必須follow draft定義的fully-compliant Multicast DNS querier
+
+11. ### Continuous Multicast DNS Querying ###
+前面的one-shot的query始於 application issues a query 結束於the first response is received.
+可是有時候需要比較複雜的，像是問到一個response之後，會再發query繼續去問
+直到沒有更多response為止
+
+12. 要看情況決定使用one-shot 或是continus，如果是要查IPv4 address，發出query之後一旦收到response
+告知address，就可以不用再查了(one-shot is okay)
+但是如果今天是用DNS-SD，想要找網路上的印表機，那麼會一直持續去發query去問說有哪台印表機
+當收到query的印表機回覆response之後，它仍然會繼續發query去問有沒有更多印表機
+
+
+13. 若基於某些因素，必須一直去定時發query作refresh
+至少必須間隔1s，且interval between successive queries 必須fallback a factor of 2
+
+14. 可以implement Known-Answer suppression，這個東西是讓你的relosver在收到13這種
+already replied their response的不必再送一次response
+
+15. DNS Querier收到answer時，裡面會包含TTL，代表這個answer有效期間是多久
+若超過此時間，代表此answer no longer be valid, and should be deleted from cache
+
+16. based on 15. 若DNS Querier想要maintain這個answer，必須在lifetime at least 50%的時候去做retransmit
+
+17. based on 16. draft建議做法是在lifetime 80%, 85%, 90%, 95%做query
+80%做一次，沒回，85%再一次，如果這四次做完都沒收到reponse，則刪除此record
+
+18. 為了avoid網路上多個node同時在做17 (lifetime同時到的時候大家都要作refresh)
+有規定一個2% random time，也就是變成 80-82%, 85-87%, 90-92%, 95-97%
+
+19. 可以擺multiple questions in the Question Section of a single mDNS query packet.
+
+20. 在送mDNS response的時候，可以選擇用multicast的方式，優點是大家都收的到，可以keep their caches up to date
+但是有些host並不想要收到這個東西
+
+21. for 20. draft定義the top bit as the "unicast response" bit
+當在question中這個bit被設成true，代表這個Querier可以接受unicast replies
+此question 需要unicast response ==> "QU"
+此uestion 需要multicast response ==> "QM"
+
+22. question在重送的時候，只使用QM (即使第一次送是用QU，失敗重送也是改QM)
+
+23. 和20類似，mDNS querier可以送unicast request to a specific machine. 並且responder也會回QU response
+
+24. 當responder收到23的封包，會檢查address，確認querier和自己在同個subnet，若否
+則silent.
+
+25. Responder handle non-local queries outside of this document.
+
+26. Responder會根據收到的query packet，在response中填入需要的resource records
+responder不可以把從其他responder聽到的資料再送給querier
+
+27. for 26. 怎麼決定說要擺哪些records進response?
+根據question name, 擺相同的record name.
+並且question的rrtype必須和question ctype相同，像是CNAME
+除非question的ctype是ANY
+
+28. A mDNS responder only respond when it has a postive non-null response.
+或是它有能力知道自己沒有哪些record，就可以回"Negative response"
+像是有人在問AAA，可是responder自己沒有IPv6服務，它必須回Negative response
+
+29. 只要這個封包是response，裡面的question section會被ignore
+在回覆的packet中不可以夾帶question，就算真的夾帶的話，也會被收到的人ignore!!!
+
+30. 當許多mDNS responder同時要回response給某個query，可以有500ms delay avoid collision
+如果responder有很好的理由相信自己是唯一一個可以回覆這個query (所有的record name它都有, type也相符)
+它會在10ms內回response
+
+
+31. 如果query TC bit is set (代表之後known-answer packet will follow)
+responder會delay response for 400-500ms，確保可以收到這段known-answer packet
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
